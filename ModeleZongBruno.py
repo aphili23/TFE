@@ -14,13 +14,14 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 from matplotlib.ticker import LinearLocator, FormatStrFormatter
 
-from RelationShipRPM import EstimateRotSpeed 
+from RelationShipRPM import EstimateRotSpeed, EstimatePitchAngle
 
 from ModeleBruno import fctU, Uinf, kw
 from BEM_Test import CT_BEM
 
 # WT specific packages
 import readField as rf
+
 from readDiskData import readDiskData
 
 import os
@@ -35,15 +36,14 @@ nDx = 24   #nD Domaine
 nDy = 6
 nDz = 6
 
-Uw = 0
-
-
 sl = 3 #Placement de la 1ere eolienne
 
 
 xWT  = 3*D
 yWT  = 3*D
 zWT  = 3*D
+
+#Domaine
 
 LengthX = nDx*D  #3024 metres
 sizeX = nDx*pD  #nX points
@@ -63,8 +63,7 @@ x-=xWT
 LengthX = nDx*D  #3024 metres
 sizeX = nDx*pD  #nX points
 
-def ComputeCircle(Uyz_CC,yawAngleI): #Renvoie la moyenne sur 1 cercle #yawAngleI pour la WT i où on compute circle
-                                    
+def ComputeCircle(Uyz_CC,yawAngleI): #Renvoie la vitesse moyenne sur 1 cercle #yawAngleI pour la WT i où on compute circle                       
     count = 0
     tot = 0
     for i in range(len(z)):
@@ -74,60 +73,79 @@ def ComputeCircle(Uyz_CC,yawAngleI): #Renvoie la moyenne sur 1 cercle #yawAngleI
             elif(((z[i]-3*D)/R)**2+((y[j]-3*D)/(R*np.cos(yawAngleI)))**2)<=1.0:
                 count+=1
                 tot += Uyz_CC[i,j]
-
     return tot/count
 
 
 
-def fctUZongForthGen(NbrEo,dist,yawAngleTab,pitchAngleTab,rotSpeedTabR,Uinf,ControlRotSpeed):
+def fctUZongForthGen(NbrEo,dist,yawAngleTabR,pitchAngleTabR,rotSpeedTabR,Uinf,ControlRotSpeed,ControlPitchAngle):
     Somme = 0
     Ud = 0
     Uis = 0
     ycTab = []
     UisTab = np.zeros(3)
-    if(ControlRotSpeed[0]==False):
-        rotSpeedR = EstimateRotSpeed(Uinf) #[rad/s]
-        rotSpeedTabR[0] = rotSpeedR
+    
     for i in range(NbrEo):
         if(i==0):      #Première Eo #sl -1 : car on fait computecircle 1 D avant l'éolienne.
             Uis = Uinf
-            Somme += (Uis-fctU(x-dist*D*i,y,z,3,0,Uis,yawAngleTab[i],pitchAngleTab[i],rotSpeedTabR[i])[0])**2 #slice 3 because 3d dimention
-            Ud = ComputeCircle(Uinf - np.sqrt(Somme[(sl-1+dist*(i+1))*16,:,:].T),yawAngleTab[i+1]) #Ud pour la 1ere eo
-            yc = fctU(x-dist*D*i,y,z,3,0,Uis,yawAngleTab[i],pitchAngleTab[i],rotSpeedTabR[i])[1]
+            if(ControlRotSpeed[i]==False):
+                rotSpeedTabR[i] = EstimateRotSpeed(Uis) #[rad/s]
+            if(ControlPitchAngle[i]==False):
+                pitchAngleTabR[i] = EstimatePitchAngle(Uis)
+            if(ControlPitchAngle[i]==True):
+                if(pitchAngleTabR[i] < EstimatePitchAngle(Uis)): #Valeur du pitch minimale pour une certaine vitesse de vent
+                    pitchAngleTabR[i] = EstimatePitchAngle(Uis)
+
+            Somme += (Uis-fctU(x-dist*D*i,y,z,3,0,Uis,yawAngleTabR[i],pitchAngleTabR[i],rotSpeedTabR[i])[0])**2 #slice 3 because 3d dimention
+            yc = fctU(x-dist*D*i,y,z,3,0,Uis,yawAngleTabR[i],pitchAngleTabR[i],rotSpeedTabR[i])[1]
             yc[:pD*(sl+i*dist)] = np.nan
             ycTab.append(yc)
-            UisTab[i] = Uinf 
-            UisTab[i+1] = Ud
-            if(ControlRotSpeed[i+1]==False):
-                rotSpeedR = EstimateRotSpeed(Ud) #[rad/s]
-                rotSpeedTabR[i+1] = rotSpeedR
+            UisTab[i] = Uinf
+            
+            Ud = ComputeCircle(Uinf - np.sqrt(Somme[(sl-1+dist*(i+1))*16,:,:].T),yawAngleTabR[i+1]) #Ud juste devant 2nd eo
                 
         elif(i==NbrEo-1): #Dernière Eo
             Uis = Ud
-            Somme += (Uis-fctU(x-dist*D*i,y,z,3,0,Uis,yawAngleTab[i],pitchAngleTab[i],rotSpeedTabR[i])[0])**2 #slice 3 because 3d dimention
-            yc = fctU(x-dist*D*i,y,z,3,0,Uis,yawAngleTab[i],pitchAngleTab[i],rotSpeedTabR[i])[1]
+            UisTab[i] = Ud
+            if(ControlRotSpeed[i]==False):                
+                rotSpeedTabR[i] = EstimateRotSpeed(Uis) #[rad/s]
+            if(ControlPitchAngle[i]==False):
+                pitchAngleTabR[i] = EstimatePitchAngle(Uis)
+            if(ControlPitchAngle[i]==True):
+                if(pitchAngleTabR[i] < EstimatePitchAngle(Uis)): #Valeur du pitch minimale pour une certaine vitesse de ventqu'on remplace
+                    pitchAngleTabR[i] = EstimatePitchAngle(Uis)
+            
+            Somme += (Uis-fctU(x-dist*D*i,y,z,3,0,Uis,yawAngleTabR[i],pitchAngleTabR[i],rotSpeedTabR[i])[0])**2 #slice 3 because 3d dimention
+            yc = fctU(x-dist*D*i,y,z,3,0,Uis,yawAngleTabR[i],pitchAngleTabR[i],rotSpeedTabR[i])[1]
             yc[:pD*(sl+i*dist)] = np.nan
             ycTab.append(yc)
             
         else: 
             Uis = Ud
-            Somme += (Uis-fctU(x-dist*D*i,y,z,3,0,Uis,yawAngleTab[i],pitchAngleTab[i],rotSpeedTabR[i])[0])**2 #slice 3 because 3d dimention
-            Ud = ComputeCircle(Uinf - np.sqrt(Somme[(sl-1+dist*(i+1))*16,:,:].T),yawAngleTab[i+1]) #Ud pour la 1ere eo
-            yc = fctU(x-dist*D*i,y,z,3,0,Uis,yawAngleTab[i],pitchAngleTab[i],rotSpeedTabR[i])[1]
+            UisTab[i] = Ud
+
+            if(ControlRotSpeed[i]==False):
+                rotSpeedTabR[i] = EstimateRotSpeed(Uis) #[rad/s]
+            if(ControlPitchAngle[i]==False):
+                pitchAngleTabR[i] = EstimatePitchAngle(Uis)
+            if(ControlPitchAngle[i]==True):
+                if(pitchAngleTabR[i] < EstimatePitchAngle(Uis)): #Valeur du pitch minimale pour une certaine vitesse de vent
+                    pitchAngleTabR[i] = EstimatePitchAngle(Uis)
+
+
+            Somme += (Uis-fctU(x-dist*D*i,y,z,3,0,Uis,yawAngleTabR[i],pitchAngleTabR[i],rotSpeedTabR[i])[0])**2 #slice 3 because 3d dimention
+            yc = fctU(x-dist*D*i,y,z,3,0,Uis,yawAngleTabR[i],pitchAngleTabR[i],rotSpeedTabR[i])[1]
             yc[:pD*(sl+i*dist)] = np.nan
             ycTab.append(yc)
-            UisTab[i+1] = Ud
-            if(ControlRotSpeed[i+1]==False):
-                rotSpeedR = EstimateRotSpeed(Ud) #[rad/s]
-                rotSpeedTabR[i+1] = rotSpeedR
-                
+            
+            Ud = ComputeCircle(Uinf - np.sqrt(Somme[(sl-1+dist*(i+1))*16,:,:].T),yawAngleTabR[i+1]) #Ud pour WT[i+1]
     Uw = Uinf - np.sqrt(Somme)
+    
     return Uw,ycTab,UisTab
 
 def fctplot(Slicer,SliceValue,yawAngleTab,pithAngleTab,rotSpeedTabR,Uinf,NbrEo,dist):
     if(Slicer==0):
         plt.figure(figsize=(6,6))
-        uXYZ,ycTab,UisTab = fctUZongForthGen(NbrEo,dist,yawAngleTab,pitchAngleTab,rotSpeedTabR,Uinf,ControlRotSpeed)
+        uXYZ,ycTab,UisTab = fctUZongForthGen(NbrEo,dist,yawAngleTab,pitchAngleTab,rotSpeedTabR,Uinf,ControlRotSpeed,ControlPitchAngle)
       
         plt.pcolormesh((y)/D,(z)/D,uXYZ[SliceValue,:,:].T/Uinf,cmap='RdBu_r',shading='gouraud');
                 
@@ -147,7 +165,7 @@ def fctplot(Slicer,SliceValue,yawAngleTab,pithAngleTab,rotSpeedTabR,Uinf,NbrEo,d
         
         plt.figure(figsize=(12,6))
         
-        uXYZ,ycTab,UisTab = fctUZongForthGen(NbrEo,dist,yawAngleTab,pitchAngleTab,rotSpeedTabR,Uinf,ControlRotSpeed)
+        uXYZ,ycTab,UisTab = fctUZongForthGen(NbrEo,dist,yawAngleTab,pitchAngleTab,rotSpeedTabR,Uinf,ControlRotSpeed,ControlPitchAngle)
         plt.pcolormesh((x)/D,(z)/D,uXYZ[:,SliceValue,:].T/Uinf,cmap='RdBu_r',shading='gouraud');
     
         plt.xlabel('x/D',size = 14)
@@ -167,7 +185,7 @@ def fctplot(Slicer,SliceValue,yawAngleTab,pithAngleTab,rotSpeedTabR,Uinf,NbrEo,d
     elif(Slicer==2):
                 
         plt.figure(figsize=(12,6))
-        uXYZ,ycTab,UisTab = fctUZongForthGen(NbrEo,dist,yawAngleTab,pitchAngleTab,rotSpeedTabR,Uinf,ControlRotSpeed)
+        uXYZ,ycTab,UisTab = fctUZongForthGen(NbrEo,dist,yawAngleTab,pitchAngleTab,rotSpeedTabR,Uinf,ControlRotSpeed,ControlPitchAngle)
 
         plt.pcolormesh((x)/D,(y)/D,uXYZ[:,:,SliceValue].T/Uinf,cmap='RdBu_r',shading='gouraud');
         for i in range(NbrEo):
@@ -209,30 +227,44 @@ SliceValueZ = 3*16
 dist = 7
 NbrEo = 3
 
+nStep = 20
+
 yawAngleTab = np.array([0.0,0.0,0.0])    
 yawAngleTabR = yawAngleTab*np.pi/180
 
 pitchAngleTab = np.array([0.0,0.0,0.0])    #deg
+#pitchAngleTabR = np.array([10.45,7.57,0])*np.pi/180
 pitchAngleTabR = pitchAngleTab*np.pi/180   #rad
 
-rotSpeedTab = np.array([7.8889,8.15,8.15])   #rpm
-rotSpeedTab = np.array([10.26,10.26,10.26])   #rpm
+#rotSpeedTab = np.array([7.8889,8.15,8.15])   #rpm  #Valeur optimale pour diminuer l'erreur
+rotSpeedTab = np.array([10.296,10.296,10.296])   #rpm
 rotSpeedTabR = rotSpeedTab*2*np.pi/60       #rad/s
 
-RangeRotSpeed  = np.linspace(5,12.1,10)   #rpm
+
+RangeRotSpeed  = np.linspace(5,12.1,nStep)   #rpm
 RangeRotSpeedR = RangeRotSpeed*2*np.pi/60  #rad/s
 RangeRotSpeedR_rev = RangeRotSpeedR[::-1]
 
-PuissanceTab_WT0 = np.empty(len(RangeRotSpeed))
-PuissanceTab_WT1 = np.empty(len(RangeRotSpeed))
-PuissanceTab_WT2 = np.empty(len(RangeRotSpeed))
-ControlRotSpeed = [False,False,False] #False -> L'éolienne calcule elle meme la rot speed
-
-PuissanceTab_WT_all = np.empty(len(RangeRotSpeed))
+RangePitchAngle = np.linspace(0,18,nStep)
+RangePitchAngleR = RangePitchAngle*np.pi/180 
+RangePitchAngleR_rev = RangePitchAngleR[::-1]
 
 
+PuissanceTab_WT0 = np.empty(nStep)
+PuissanceTab_WT1 = np.empty(nStep)
+PuissanceTab_WT2 = np.empty(nStep)
 
-#uXYZ = fctUZongForthGen(NbrEo,dist,yawAngleTabR,pitchAngleTabR,rotSpeedTabR,Uinf,ControlRotSpeed)[0]
+PuissanceTab_WT_all = np.empty(nStep)
+
+#ControlRotSpeed = [False,False,False] #False -> L'éolienne calcule elle meme la rot speed
+#ControlPitchAngle = [False,False,False] #False -> L'éolienne calcule elle meme le pitchAngle
+
+ControlRotSpeed = [True,True,True] #False -> L'éolienne calcule elle meme la rot speed
+ControlPitchAngle = [True,True,True] #False -> L'éolienne calcule elle meme le pitchAngle
+
+
+
+#uXYZ = fctUZongForthGen(NbrEo,dist,yawAngleTabR,pitchAngleTabR,rotSpeedTabR,Uinf,ControlRotSpeed,ControlPitchAngle)[0]
 
 ######### FIN PARAMETRES DE SIMU #########
 
@@ -245,26 +277,26 @@ fctplot(0,SliceValueX,yawAngleTab,pitchAngleTab,rotSpeedTabR,Uinf,NbrEo,dist)
 """
 ######### FIN - Plot de 2 slices différentes #########
 
-   
+
 
 ######## CTRL - DEBUT OPTI RANGESPEED 1WT & 2 WT #########
 """
 #Verifier que le control est activé
 ControlRotSpeed = [True,True,False] #False -> L'éolienne calcule elle meme la rot speed
 
-PuissanceTab_WT0 = np.empty(((len(RangeRotSpeed)),len(RangeRotSpeed)))
-PuissanceTab_WT1 = np.empty(((len(RangeRotSpeed)),len(RangeRotSpeed)))
-PuissanceTab_WT2 = np.empty(((len(RangeRotSpeed)),len(RangeRotSpeed)))
+PuissanceTab_WT0 = np.empty((nStep,nStep))
+PuissanceTab_WT1 = np.empty((nStep,nStep))
+PuissanceTab_WT2 = np.empty((nStep,nStep))
 
-PuissanceTab_WT_all = np.empty(((len(RangeRotSpeed)),len(RangeRotSpeed)))
+PuissanceTab_WT_all = np.empty((nStep,nStep))
 UisTabXY = []
 
 X,Y = np.meshgrid(RangeRotSpeed,RangeRotSpeed)
-for i in range(len(RangeRotSpeedR)):
-    for j in range(len(RangeRotSpeedR)):
+for i in range(nStep):
+    for j in range(nStep):
         rotSpeedTabR[0] = RangeRotSpeedR[i]
         rotSpeedTabR[1] = RangeRotSpeedR_rev[j]
-        uXYZ_pw = fctUZongForthGen(NbrEo,dist,yawAngleTabR,pitchAngleTabR,rotSpeedTabR,Uinf,ControlRotSpeed)[0]
+        uXYZ_pw = fctUZongForthGen(NbrEo,dist,yawAngleTabR,pitchAngleTabR,rotSpeedTabR,Uinf,ControlRotSpeed,ControlPitchAngle)[0]
         Puiss = ComputePuissance(uXYZ_pw)
         UisTabXY.append(Puiss[1]) #Renvoie un tableau de taille 3 (Uis 1,2,3)
         PuissTab = Puiss[0]
@@ -272,15 +304,16 @@ for i in range(len(RangeRotSpeedR)):
         PuissanceTab_WT1[i][j]  = PuissTab[1]
         PuissanceTab_WT2[i][j]  = PuissTab[2]
         PuissanceTab_WT_all[i][j] = sum(PuissTab)
-        print("Etat : "+ str(len(RangeRotSpeedR)*i+j))
+        print("Etat : "+ str(nStep*i+j))
 
 
 MaxPuissFarm = np.max(PuissanceTab_WT_all)
 Index_MaxPuissFarm = np.where(PuissanceTab_WT_all==np.max(PuissanceTab_WT_all))   #Indice dans la valeur P_max ds le tableau PuissMax
-UisTab_MAX_Power = UisTabXY[Index_MaxPuissFarm[0][0]*len(RangeRotSpeed)+Index_MaxPuissFarm[1][0]]
+UisTab_MAX_Power = UisTabXY[Index_MaxPuissFarm[0][0]*nStep+Index_MaxPuissFarm[1][0]]
 
 #f= open("Result.txt","w+")
 #f.truncate()
+#f.write("\n \n")
 #f.write("Results OPTI WT0 and WT1 for U_inf = " + str(Uinf) + "\n \n")
 #f.write("The max power reach is " + str(round(MaxPuissFarm,3)) + " [MW]" + "\n")
 #f.write("Velocities Uis  are " + str(UisTab_MAX_Power)+ "[m/s] \n")
@@ -327,9 +360,9 @@ plt.show()
 """
 #Verifier que le control 1WT est activé
 ControlRotSpeed = [True,False,False] #False -> L'éolienne calcule elle meme la rot speed
-for i in range(len(RangeRotSpeedR)):
+for i in range(nStep):
     rotSpeedTabR[0] = RangeRotSpeedR[i]
-    uXYZ_pw = fctUZongForthGen(NbrEo,dist,yawAngleTabR,pitchAngleTabR,rotSpeedTabR,Uinf,ControlRotSpeed)[0]
+    uXYZ_pw = fctUZongForthGen(NbrEo,dist,yawAngleTabR,pitchAngleTabR,rotSpeedTabR,Uinf,ControlRotSpeed,ControlPitchAngle)[0]
     PuissTab = ComputePuissance(uXYZ_pw)[0]
     PuissanceTab_WT0[i]  = PuissTab[0]
     PuissanceTab_WT1[i]  = PuissTab[1]
@@ -404,10 +437,10 @@ plt.savefig("figures/Opti_Omega1WT.png")
 """
 #Verifier que le control 2WT est activé
 ControlRotSpeed = [False,True,False] #False -> L'éolienne calcule elle meme la rot speed
-for i in range(len(RangeRotSpeedR)):
+for i in range(nStep):
     print("Etat : " +str(i))
     rotSpeedTabR[1] = RangeRotSpeedR[i]
-    uXYZ_pw = fctUZongForthGen(NbrEo,dist,yawAngleTabR,pitchAngleTabR,rotSpeedTabR,Uinf,ControlRotSpeed)[0]
+    uXYZ_pw = fctUZongForthGen(NbrEo,dist,yawAngleTabR,pitchAngleTabR,rotSpeedTabR,Uinf,ControlRotSpeed,ControlPitchAngle)[0]
     PuissTab = ComputePuissance(uXYZ_pw)[0]
     PuissanceTab_WT0[i]  = PuissTab[0]
     PuissanceTab_WT1[i]  = PuissTab[1]
@@ -478,15 +511,19 @@ ax.legend(['WT0','WT1','WT2','SUM'])
 
 
 ############# DEBUT DE CALIBRATION #############
-
-#Verifier que ctrl = false :> Calibration - R
-ControlRotSpeed = [False,False,False] #False -> L'éolienne calcule elle meme la rot speed
+"""
+#Verifier que ctrl = True :> Calibration par rapport à BF fixée???????????????????????
 #ControlRotSpeed = [True,True,True] #False -> L'éolienne calcule elle meme la rot speed
+#ControlPitchAngle = [True,True,True] #False -> L'éolienne calcule elle meme le pitch angle
 
-rotSpeedTab = np.array([10.296,10.296,10.296])   #rpm
-rotSpeedTabR = rotSpeedTab*2*np.pi/60       #rad/s
+ControlRotSpeed = [False,False,False] #False -> L'éolienne calcule elle meme la rot speed
+ControlPitchAngle = [False,False,False] #False -> L'éolienne calcule elle meme le pitch angle
 
-uXYZ = fctUZongForthGen(NbrEo,dist,yawAngleTabR,pitchAngleTabR,rotSpeedTabR,Uinf,ControlRotSpeed)[0]
+
+#rotSpeedTab = np.array([10.296,10.296,10.296])   #rpm
+#rotSpeedTabR = rotSpeedTab*2*np.pi/60       #rad/s
+
+uXYZ = fctUZongForthGen(NbrEo,dist,yawAngleTabR,pitchAngleTabR,rotSpeedTabR,Uinf,ControlRotSpeed,ControlPitchAngle)[0]
 
 #Paramètres de simu BF
 
@@ -587,7 +624,7 @@ plt.figure(5,figsize=(16,8))
 plt.plot(x/D,MeanVelZong)
 
 #Vérification de l'erreur pour différentes valeurs de x (commence à 0)
-ind_ToCheck = 16*np.array([2,2+dist,2+2*dist])
+ind_ToCheck = 16*(np.array([2,2+dist,2+2*dist]))
 
 #
 for i in range(3):
@@ -597,7 +634,84 @@ for i in range(3):
     print("Le x de BF vaut : " +str(x[ind_ToCheck[i]]/D))
     print("u_is BF vaut " +str(ComputeCircle(Us,0)))
     print("Error in percent at x = " +str(ind_ToCheck[i]/16) +" D is : " +str(Error[ind_ToCheck[i]]))
-
+print("Somme vaut " + str(sum(abs(Error[ind_ToCheck]))))
+"""
 ############# FIN DE CALIBRATION #############
 
 
+######## CTRL - DEBUT OPTI RANGEPITCH 1WT & 2 WT #########
+"""
+#Verifier que le control est activé
+ControlPitchAngle = [True,True,False] #False -> L'éolienne calcule elle meme la rot speed
+
+PuissanceTab_WT0 = np.empty((nStep,nStep))
+PuissanceTab_WT1 = np.empty((nStep,nStep))
+PuissanceTab_WT2 = np.empty((nStep,nStep))
+
+PuissanceTab_WT_all = np.empty((nStep,nStep))
+UisTabXY = []
+
+X,Y = np.meshgrid(RangePitchAngle,RangePitchAngle)
+for i in range(nStep):
+    for j in range(nStep):
+        pitchAngleTabR[0] = RangePitchAngleR[i]
+        pitchAngleTabR[1] = RangePitchAngleR[j]
+        uXYZ_pw = fctUZongForthGen(NbrEo,dist,yawAngleTabR,pitchAngleTabR,rotSpeedTabR,Uinf,ControlRotSpeed,ControlPitchAngle)[0]
+        Puiss = ComputePuissance(uXYZ_pw)
+        UisTabXY.append(Puiss[1]) #Renvoie un tableau de taille 3 (Uis 1,2,3)
+        PuissTab = Puiss[0]
+        PuissanceTab_WT0[i][j]  = PuissTab[0]
+        PuissanceTab_WT1[i][j]  = PuissTab[1]
+        PuissanceTab_WT2[i][j]  = PuissTab[2]
+        print("Etat : "+ str(nStep*i+j))
+
+PuissanceTab_WT_all = PuissanceTab_WT0+PuissanceTab_WT1+PuissanceTab_WT2
+
+MaxPuissFarm = np.max(PuissanceTab_WT_all)
+Index_MaxPuissFarm = np.where(PuissanceTab_WT_all==np.max(PuissanceTab_WT_all))   #Indice dans la valeur P_max ds le tableau PuissMax
+UisTab_MAX_Power = UisTabXY[Index_MaxPuissFarm[0][0]*nStep+Index_MaxPuissFarm[1][0]]
+
+f= open("Result.txt","w+")
+f.write("\n \n")
+f.write("Results OPTI-PITCH  WT0 and WT1 for U_inf = " + str(Uinf) + "\n \n")
+f.write("The max power reach is " + str(round(MaxPuissFarm,3)) + " [MW]" + "\n")
+f.write("Velocities Uis  are " + str(UisTab_MAX_Power)+ "[m/s] \n")
+f.write("The pitch WT0_OPT is " + str(RangePitchAngle[Index_MaxPuissFarm[0][0]]) + "° \n")
+f.write("The pitch WT1_OPT is " + str(RangePitchAngle[Index_MaxPuissFarm[1][0]]) + "° \n")
+f.close()
+
+#PLot 3D de la puissance, avec controle de rotSpeed des WT1 & WT 2.
+fig = plt.figure(1,figsize=(10,10))
+ax = fig.gca(projection='3d')
+surf = ax.plot_surface(X, Y, PuissanceTab_WT_all, cmap=cm.coolwarm,
+                       linewidth=0, antialiased=False)
+ax.view_init(elev=15,azim=10)
+plt.title("Power of the farm influenced by the pitch angle \n of the " + "$1^{st}$" + " and " "$2^{nd}$" + " wind turbine",size=20)
+ax.set_xlabel(r'$\beta_{WT_1} \: [°] $',size=18)
+ax.set_ylabel(r'$\beta_{WT_2} \: [°] $',size=18)
+ax.zaxis.set_rotate_label(False)  # disable automatic rotation
+ax.set_zlabel('Power [MW]',size=20,rotation=90)
+plt.savefig("figures/Opti3D_Pitch_Omega1&2WT.png")
+plt.show()
+
+#PLot 2D de la puissance, avec controle de rotSpeed de WT1. RotSpeed de WT 2 optimal. 
+plt.figure(2,figsize=(7.5,5.5))
+plt.plot(RangePitchAngle,PuissanceTab_WT_all[:,Index_MaxPuissFarm[-1][0]]) #coupe selon y
+plt.title("Slice of the 3D Power \n " + r'$\beta_{WT_2,OPT}$ = ' + str(round(RangePitchAngle[Index_MaxPuissFarm[-1][0]],2)) + "°",size=18)
+plt.xlabel(r'$\beta_{WT_1} \: [°]$',size=20)
+plt.ylabel('Power [MW]',size=20)
+plt.savefig("figures/Opti3D_Pitch_sliceWT2_fixed.png")
+plt.show()
+
+
+#PLot 2D de la puissance, avec controle de rotSpeed de WT2. RotSpeed de WT1 optimal. 
+plt.figure(3,figsize=(7.5,5.5))
+plt.plot(RangePitchAngle,PuissanceTab_WT_all[Index_MaxPuissFarm[0][0],:]) #coupe selon x
+plt.title("Slice of the 3D Power \n " + r'$\beta_{WT_1,OPT}$ = ' + str(round(RangePitchAngle[Index_MaxPuissFarm[0][0]],2)) + " °",size=18)
+plt.xlabel(r'$\beta_{WT_2} \: [°]$',size=20)
+plt.ylabel('Power [MW]',size=20)
+plt.savefig("figures/Opti3D_Pitch_sliceWT1_fixed.png")
+
+plt.show()
+"""
+######## CTRL - FIN OPTI RANGEPITCH 1WT & 2 WT #########
