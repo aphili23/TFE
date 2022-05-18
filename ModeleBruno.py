@@ -144,7 +144,7 @@ nDz = 6
 ######### Paramètres simu #########
 Uinf = 9 #m/s
 
-kw = 0.065
+kw = 0.08
 
 # Probablement changer cette valeur pour avoir des computes Circle qui reviennenet à Uinf 
 #sigma_0 = 0.275*D
