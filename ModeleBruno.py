@@ -144,7 +144,7 @@ nDz = 6
 ######### Paramètres simu #########
 Uinf = 9 #m/s
 
-kw = 0.08
+kw = 0.044
 
 # Probablement changer cette valeur pour avoir des computes Circle qui reviennenet à Uinf 
 #sigma_0 = 0.275*D
@@ -179,7 +179,7 @@ SliceValueX = 5*16
 SliceValueY = 3*16
 SliceValueZ = 3*16
 
-yawAngleD = 30
+yawAngleD = 0
 yawAngle = yawAngleD*np.pi/180
 
 pitchAngle = 0 
@@ -191,4 +191,4 @@ Slicer = 0
 
 #fctU(x,y,z,3,SliceValueZ,Uinf,yawAngle,pitchAngle,rotSpeedR)[0]
 
-#fctplot(2,SliceValueZ,yawAngle,pitchAngle,rotSpeedR)  #fctplot(Slicer, angle)
+fctplot(2,SliceValueZ,yawAngle,pitchAngle,rotSpeedR)  #fctplot(Slicer, angle)
